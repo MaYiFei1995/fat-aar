@@ -133,7 +133,7 @@ class Utils {
             ILogger mLogger = new LoggerWrapper(Logging.getLogger(Task.class))
 
             Invoker manifestMergerInvoker = ManifestMerger2.newMerger(mainManifestFile, mLogger, MergeType.APPLICATION)
-            manifestMergerInvoker.addLibraryManifests(libraryManifests.toArray(new File[libraryManifests.size()]))
+            manifestMergerInvoker.addLibraryManifests(libraryManifests.toArray(new File[libraryManifests.size()]) as File[])
             manifestMergerInvoker.setMergeReportFile(reportFile)
 
             MergingReport mergingReport = manifestMergerInvoker.merge()
@@ -252,7 +252,7 @@ class Utils {
         for (s in symbols) {
             cw.visitField(
                     ACC_PUBLIC + ACC_STATIC,
-                    s.name,
+                    s.name.replace('.', '_'),
                     s.javaType.desc,
                     null,
                     null
@@ -265,7 +265,7 @@ class Utils {
 
                     cw.visitField(
                             ACC_PUBLIC + ACC_STATIC,
-                            "${s.name}_${SymbolUtils.canonicalizeValueResourceName(child)}",
+                            "${s.name.replace('.', '_')}_${SymbolUtils.canonicalizeValueResourceName(child)}",
                             "I",
                             null,
                             null)
@@ -286,14 +286,16 @@ class Utils {
         MethodVisitor clinit = cw.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null)
         clinit.visitCode()
         for (s in symbols) {
-
             String targetInternalName = generateInternalName(targetPackageName, resType)
-            clinit.visitFieldInsn(GETSTATIC, targetInternalName, s.name, s.javaType.desc)
-            clinit.visitFieldInsn(PUTSTATIC, internalName, s.name, s.javaType.desc)
+
+            String sname = s.name.replace('.', '_')
+
+            clinit.visitFieldInsn(GETSTATIC, targetInternalName, sname, s.javaType.desc)
+            clinit.visitFieldInsn(PUTSTATIC, internalName, sname, s.javaType.desc)
 
             if (s instanceof Symbol.StyleableSymbol) {
                 s.children.each {
-                    String name = "${s.name}_${SymbolUtils.canonicalizeValueResourceName(it)}"
+                    String name = "${s.name.replace('.', '_')}_${SymbolUtils.canonicalizeValueResourceName(it)}"
                     clinit.visitFieldInsn(GETSTATIC, targetInternalName, name, "I")
                     clinit.visitFieldInsn(PUTSTATIC, internalName, name, "I")
                 }

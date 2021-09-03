@@ -34,6 +34,7 @@ class FatAarPlugin implements Plugin<Project> {
     private String packaged_class
     private String intermediates_dir
     private String temp_classes_dir
+    private String aar_libs_directory
 
     private String mAndroidGradleVersion
 
@@ -45,12 +46,12 @@ class FatAarPlugin implements Plugin<Project> {
 
     private void initVariables(Project project) {
         build_dir = project.buildDir.path.replace(File.separator, '/')
-        packaged_class = "$build_dir/intermediates/packaged-classes"
+        packaged_class = "$build_dir/intermediates/compile_r_class_jar/"
         intermediates_dir = "$build_dir/intermediates"
         build_plugin_dir = "$build_dir/fat-aar"
         temp_classes_dir = "$build_plugin_dir/temp-classes"
         exploded_aar_dir = "$build_plugin_dir/exploded_aar"
-
+        aar_libs_directory = "$intermediates_dir/aar_libs_directory"
         project.parent.buildscript.configurations.classpath.dependencies.each {
             if (it.group == "com.android.tools.build" && it.name == "gradle")
                 mAndroidGradleVersion = it.version
@@ -128,7 +129,32 @@ class FatAarPlugin implements Plugin<Project> {
 
                     //Generated R.jar file and merge library jar
                     Task embedJarTask = project.task("embed${flavorBuildType}LibJarAndRClass", group: 'fat-aar').doLast {
-                        generateRJar(flavorName, buildType, project.name)
+//                        generateRJar('main', buildType, project.name)
+
+                        /* generateRJar start*/
+                        List<SymbolTable> tableList = new ArrayList<>()
+
+                        mEmbeddedAarDirs.each {
+                            aarDir ->
+                                File resDir = new File(aarDir + "/res")
+                                if (resDir.listFiles() == null) return
+
+                                SymbolTable table = ResourceDirectoryParser.parseResourceSourceSetDirectory(
+                                        resDir, IdProvider.@Companion.sequential(), null, null)
+
+                                String aarPackageName = new XmlParser().parse("${aarDir}/AndroidManifest.xml").@package
+
+                                Field field = table.getClass().getDeclaredField("tablePackage")
+                                field.setAccessible(true)
+                                field.set(table, aarPackageName)
+
+                                tableList.add(table)
+                        }
+
+                        String currentPackageName = new XmlParser().parse(new File(build_dir).parent + "/src/main/AndroidManifest.xml").@package
+                        exportToCompiledJava(tableList, currentPackageName, new File("$packaged_class/$flavorName/$buildType/R.jar").toPath())
+
+                        /* generateRJar end*/
 
                         if (!enableProguard) {
                             mEmbeddedAarDirs.each { aarPath ->
@@ -141,11 +167,25 @@ class FatAarPlugin implements Plugin<Project> {
                             // Copy all additional jar files to bundle lib
                             project.copy {
                                 from mEmbeddedJars
-                                into project.file("$packaged_class/$flavorName/$buildType/libs")
+//                                into project.file("$packaged_class/$flavorName/$buildType/libs")
+                                into project.file("$aar_libs_directory/$flavorName/$buildType/libs")
+                            }
+
+                            project.copy {
+                                from new File("$packaged_class/$flavorName/$buildType/R.jar")
+                                into project.file("$aar_libs_directory/$flavorName/$buildType/libs/")
+                                rename("R.jar", "${project.name}_R.jar")
                             }
                         }
                     }
-                    embedJarTask.dependsOn(project.tasks."transformClassesAndResourcesWithSyncLibJarsFor${flavorBuildType}")
+
+//                    if (Utils.compareVersion(mGradlePluginVersion, '3.6.0') >= 0) {
+//                        syncLibJarsTaskPath = "sync${libraryVariant.name.capitalize()}LibJars"
+//                    } else {
+//                        syncLibJarsTaskPath = "transformClassesAndResourcesWithSyncLibJarsFor${libraryVariant.name.capitalize()}"
+//                    }
+//                    embedJarTask.dependsOn(project.tasks."transformClassesAndResourcesWithSyncLibJarsFor${flavorBuildType}")
+                    embedJarTask.dependsOn(project.tasks."sync${libraryVariant.name.capitalize()}LibJars")
 
                     Task bundleAarTask = project.tasks."bundle${flavorBuildType}Aar"
                     bundleAarTask.dependsOn embedManifestsTask
@@ -302,27 +342,27 @@ class FatAarPlugin implements Plugin<Project> {
         mergeManifest(mainManifest, libraryManifests, reportFile)
     }
 
-    private void generateRJar(String flavorName, String buildType, String projectName) {
-        List<SymbolTable> tableList = new ArrayList<>()
-
-        mEmbeddedAarDirs.each {
-            aarDir ->
-                File resDir = new File(aarDir + "/res")
-                if (resDir.listFiles() == null) return
-
-                SymbolTable table = ResourceDirectoryParser.parseResourceSourceSetDirectory(
-                        resDir, IdProvider.@Companion.sequential(), null)
-
-                String aarPackageName = new XmlParser().parse("${aarDir}/AndroidManifest.xml").@package
-
-                Field field = table.getClass().getDeclaredField("tablePackage")
-                field.setAccessible(true)
-                field.set(table, aarPackageName)
-
-                tableList.add(table)
-        }
-
-        String currentPackageName = new XmlParser().parse(new File(build_dir).parent + "/src/main/AndroidManifest.xml").@package
-        exportToCompiledJava(tableList, currentPackageName, new File("$packaged_class/$flavorName/$buildType/libs/${projectName}_R.jar").toPath())
-    }
+//    private void generateRJar(String flavorName, String buildType, String projectName) {
+//        List<SymbolTable> tableList = new ArrayList<>()
+//
+//        mEmbeddedAarDirs.each {
+//            aarDir ->
+//                File resDir = new File(aarDir + "/res")
+//                if (resDir.listFiles() == null) return
+//
+//                SymbolTable table = ResourceDirectoryParser.parseResourceSourceSetDirectory(
+//                        resDir, IdProvider.@Companion.sequential(), null, null)
+//
+//                String aarPackageName = new XmlParser().parse("${aarDir}/AndroidManifest.xml").@package
+//
+//                Field field = table.getClass().getDeclaredField("tablePackage")
+//                field.setAccessible(true)
+//                field.set(table, aarPackageName)
+//
+//                tableList.add(table)
+//        }
+//
+//        String currentPackageName = new XmlParser().parse(new File(build_dir).parent + "/src/main/AndroidManifest.xml").@package
+//        exportToCompiledJava(tableList, currentPackageName, new File("$packaged_class/$flavorName/$buildType/libs/${projectName}_R.jar").toPath())
+//    }
 }
